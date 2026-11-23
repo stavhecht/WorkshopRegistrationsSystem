@@ -17,6 +17,7 @@
             <groupId>patmal.workshops.student.impl</groupId>
             <artifactId>logic-impl</artifactId>
         </dependency>
+
         <!-- the API jars have no real pom, so their dependencies are declared by hand -->
         <dependency>
             <groupId>patmal.workshops</groupId>
@@ -30,11 +31,18 @@
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-api</artifactId>
         </dependency>
+
         <!-- the Log4j implementation is only needed when the program runs -->
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-core</artifactId>
             <scope>runtime</scope>
+        </dependency>
+
+        <!-- test scope (managed in root): used by the build, never packed into the uber jar -->
+        <dependency>
+            <groupId>patmal.workshops</groupId>
+            <artifactId>workshop-tester</artifactId>
         </dependency>
     </dependencies>
 
@@ -70,6 +78,30 @@
                                     </excludes>
                                 </filter>
                             </filters>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- runs the tester in a separate JVM in the verify phase; a non-zero exit fails the build -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>run-tester</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>exec</goal>
+                        </goals>
+                        <configuration>
+                            <executable>${java.home}/bin/java</executable>
+                            <classpathScope>test</classpathScope>
+                            <arguments>
+                                <argument>-classpath</argument>
+                                <classpath/>
+                                <argument>patmal.workshops.main.Main</argument>
+                            </arguments>
                         </configuration>
                     </execution>
                 </executions>

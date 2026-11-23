@@ -1,5 +1,8 @@
 package patmal.workshops.student.impl.logic;
 
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVParser;
+import org.apache.commons.csv.CSVRecord;
 import org.apache.commons.validator.routines.EmailValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -8,6 +11,10 @@ import patmal.workshops.api.model.*;
 import patmal.workshops.student.impl.model.*;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.*;
 
 /** In-memory registry. Unknown keys: getX(id) returns null, getStudentsOfX(id) returns an empty list. */
@@ -23,6 +30,8 @@ public class WorkshopSystemImpl implements WorkshopSystem {
 
     @Override
     public Instructor createInstructor(String id, String name, String email) {
+        requireText(id, "Instructor id");
+        requireText(name, "Instructor name");
         if (instructors.containsKey(id)) throw reject("Duplicate instructor id: " + id);
         validateEmail(email);
         InstructorImpl i = new InstructorImpl(id, name, email);
@@ -33,6 +42,7 @@ public class WorkshopSystemImpl implements WorkshopSystem {
 
     @Override
     public Workshop createWorkshop(String name, String description) {
+        requireText(name, "Workshop name");
         WorkshopImpl w = new WorkshopImpl(workshops.size() + 1, name, description);
         workshops.put(w.getId(), w);
         log.info("Created workshop {} ({})", w.getId(), name);
@@ -41,6 +51,7 @@ public class WorkshopSystemImpl implements WorkshopSystem {
 
     @Override
     public void associateWorkshopWithInstructor(Instructor instructor, Workshop workshop) {
+        if (instructor == null || workshop == null) throw reject("Instructor and workshop are required");
         InstructorImpl i = instructors.get(instructor.getId());
         WorkshopImpl w = workshops.get(workshop.getId());
         if (i != instructor || w != workshop) throw reject("Unknown instructor or workshop");
@@ -52,6 +63,8 @@ public class WorkshopSystemImpl implements WorkshopSystem {
 
     @Override
     public Student createStudent(String id, String name, String email) {
+        requireText(id, "Student id");
+        requireText(name, "Student name");
         if (students.containsKey(id)) throw reject("Duplicate student id: " + id);
         validateEmail(email);
         StudentImpl s = new StudentImpl(id, name, email);
@@ -62,9 +75,10 @@ public class WorkshopSystemImpl implements WorkshopSystem {
 
     @Override
     public Team createTeam(String name, Workshop workshop, List<String> members) {
+        requireText(name, "Team name");
         if (workshop == null || workshops.get(workshop.getId()) != workshop)
             throw reject("Unknown workshop");
-        if (members.isEmpty()) throw reject("Team needs at least one member");
+        if (members == null || members.isEmpty()) throw reject("Team needs at least one member");
         // validate everything before touching state
         Set<String> seen = new HashSet<>();
         for (String id : members) {
@@ -112,20 +126,57 @@ public class WorkshopSystemImpl implements WorkshopSystem {
 
     @Override
     public void exportInstructorsDataToJson(File target) {
+        if (target == null) throw reject("Target file is required");
         json.exportInstructors(getInstructors(), getTeams(), target);
         log.info("Exported {} instructors to {}", instructors.size(), target);
     }
 
     @Override
     public void exportStudentsDataToJson(File target) {
+        if (target == null) throw reject("Target file is required");
         json.exportStudents(students.values(), target);
         log.info("Exported {} students to {}", students.size(), target);
     }
 
     @Override
     public void exportTeamsDataToJson(File target) {
+        if (target == null) throw reject("Target file is required");
         json.exportTeams(getTeams(), target);
         log.info("Exported {} teams to {}", teams.size(), target);
+    }
+
+    /** Registers students from a UTF-8 CSV file (header id,name,email); stops at the first rejected line. */
+    @Override
+    public List<Student> importStudentDataFromFile(File source) {
+        if (source == null) throw reject("CSV file is required");
+        String text;
+        try {
+            text = Files.readString(source.toPath(), StandardCharsets.UTF_8); // strict: bytes that are not UTF-8 fail instead of silently becoming replacement characters
+        } catch (IOException e) {
+            throw new UncheckedIOException("Cannot read " + source, e);
+        }
+        if (text.startsWith("\uFEFF")) text = text.substring(1); // byte order mark written by Excel
+
+        List<Student> imported = new ArrayList<>();
+        try (CSVParser parser = CSVParser.parse(text, CSVFormat.DEFAULT)) {
+            Iterator<CSVRecord> records = parser.iterator();
+            if (!records.hasNext() || !records.next().toList().equals(List.of("id", "name", "email")))
+                throw reject("Missing or wrong CSV header in " + source);
+            while (records.hasNext()) {
+                CSVRecord r = records.next();
+                if (r.size() != 3) throw reject("Wrong number of values in " + source + ": " + r.toList());
+                imported.add(createStudent(r.get(0), r.get(1), r.get(2)));
+            }
+        } catch (IOException | UncheckedIOException e) {
+            // the text is already in memory, so any error here is malformed CSV (e.g. an unclosed quote), not I/O
+            throw reject("Malformed CSV in " + source + ": " + e.getMessage());
+        }
+        log.info("Imported {} students from {}", imported.size(), source);
+        return imported;
+    }
+
+    private static void requireText(String value, String what) {
+        if (value == null || value.isBlank()) throw reject(what + " must not be empty");
     }
 
     private static void validateEmail(String email) {

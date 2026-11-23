@@ -26,3 +26,8 @@ submission.txt
 
 out/
 target/
+instructors.json
+students.json
+teams.json
+.DS_Store
+.idea/
